@@ -1,0 +1,146 @@
+services:
+  postgres-research:
+    image: postgres:16
+    container_name: postgres-research
+    environment:
+      POSTGRES_DB: research
+      POSTGRES_USER: researcher
+      POSTGRES_PASSWORD: ${POSTGRESPASSWORD}
+    volumes:
+      - ${HOMEFOLDER}/db-postgres-r:/var/lib/postgresql/data
+    networks:
+      - research-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U researcher
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  postgres-python:
+    image: postgres:16
+    container_name: postgres-python
+    environment:
+      POSTGRES_DB: python
+      POSTGRES_USER: pyuser
+      POSTGRES_PASSWORD: ${PYTHONPOSTGRESPASSWORD}
+    volumes:
+      - ${HOMEFOLDER}/db-postgres-py:/var/lib/postgresql/data
+    networks:
+      - research-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U pyuser
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  rstudio:
+    image: rocker/tidyverse:latest
+    container_name: rstudio
+    environment:
+      - PASSWORD=${RSTUDIOPASSWORD}
+      - ROOT="true"
+      - ADD=shiny
+      - POSTGRESHOST=postgres-research
+      - POSTGRESDB=research
+      - POSTGRESUSER=researcher
+      - POSTGRESPASSWORD=${POSTGRESPASSWORD}
+      - LITELLMAPIBASE=http://litellm-proxy:4000
+      - LITELLMAPIKEY=${LITELLMMASTERKEY}
+      - USERID=1000
+      - GROUPID=1000
+    ports:
+      - 8787:8787
+    volumes:
+      - ./rstudio-home:/mnt/rstudio
+      - ${HOMEFOLDER}/shared:/mnt/shared
+      - ${HOMEFOLDER}/notebooks:/mnt/notebooks
+      - ${HOMEFOLDER}/research-files:/mnt/research-files
+    networks:
+      - research-network
+    depends_on:
+      postgres-research:
+        condition: service_healthy
+  jupyterlab:
+    image: jupyter/datascience-notebook:latest
+    container_name: jupyterlab
+    environment:
+      JUPYTER_TOKEN: ${JUPYTERTOKEN}
+      POSTGRESHOST: postgres-python
+      POSTGRESDB: python
+      POSTGRESUSER: pyuser
+      POSTGRESPASSWORD: ${PYTHONPOSTGRESPASSWORD}
+      LITELLMAPIBASE: http://litellm-proxy:4000
+      LITELLMAPIKEY: ${LITELLMMASTERKEY}
+    ports:
+      - 8888:8888
+    user: root
+    volumes:
+      - ./jupyter-home:/home/jovyan
+      - ${HOMEFOLDER}/shared:/mnt/shared
+      - ${HOMEFOLDER}/notebooks:/mnt/notebooks
+      - ${HOMEFOLDER}/research-files:/mnt/research-files
+    networks:
+      - research-network
+    depends_on:
+      postgres-python:
+        condition: service_healthy
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    ports:
+      - 5050:80
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMINEMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMINPASSWORD}
+    volumes:
+      - ${HOMEFOLDER}/pgadmin:/var/lib/pgadmin
+    networks:
+      - research-network
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm-database:main-stable
+    container_name: litellm-proxy
+    restart: unless-stopped
+    ports:
+      - 4000:4000
+    environment:
+      LITELLMMASTERKEY: ${LITELLMMASTERKEY}
+      DATABASEURL: postgresql://litellm:${LITELLMDBPASSWORD}@postgres-litellm:5432/litellm
+      OPENAIAPIKEY: ${OPENAIAPIKEY}
+      ANTHROPICAPIKEY: ${ANTHROPICAPIKEY}
+      OLLAMABASEURL: http://${AISERVICESIP}:11434
+    volumes:
+      - ${HOMEFOLDER}/litellm/config.yaml:/app/config.yaml
+      - ${HOMEFOLDER}/litellm/data:/app/data
+    networks:
+      - research-network
+    depends_on:
+      - postgres-litellm
+  postgres-litellm:
+    image: postgres:16
+    container_name: postgres-litellm
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLMDBPASSWORD}
+    volumes:
+      - ${HOMEFOLDER}/db-liteLLM:/var/lib/postgresql/data
+    networks:
+      - research-network
+  # WebDAV service for Zotero attachments/PDFs
+  webdav:
+    image: bytemark/webdav
+    container_name: webdav
+    environment:
+      - USERNAME=${WEBDAVUSER}
+      - PASSWORD=${WEBDAVPASSWORD}
+    ports:
+      - 8084:80
+    volumes:
+      - ${HOMEFOLDER}/zotero-pdfs:/var/lib/webdav
+    networks:
+      - research-network
+networks:
+  research-network:
+    driver: bridge
