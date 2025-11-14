@@ -1,31 +1,32 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+  localai:
+    image: localai/localai:latest-gpu-vulkan
+    container_name: localai
     ports:
-      - 11434:11434
+      - 8080:8080
+    devices:
+      - /dev/dri
+      - /dev/kfd
     volumes:
-      - /var/mnt/thinktank/llm-models:/root/.ollama
-    user: 1000:1000 # Replace with your actual UID:GID from 'id' command
+      - /var/mnt/thinktank/llm-models:/models:z
     networks:
       - ai-network
-    environment:
-      - OLLAMA_NUM_GPU=0
     restart: unless-stopped
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     ports:
-      - 3000:8080
+      - 3000:8080 # External port 3000 maps to internal 8080
     volumes:
       - open-webui-data:/app/backend/data
     networks:
       - ai-network
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OPENAI_API_BASE_URL=http://localai:8080/v1 # Changed from OLLAMA_BASE_URL
+      - OPENAI_API_KEY=placeholder # LocalAI doesn't need real key but Open WebUI requires it set
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
     depends_on:
-      - ollama
+      - localai
     restart: unless-stopped
 networks:
   ai-network:
